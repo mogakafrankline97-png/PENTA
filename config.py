@@ -22,13 +22,18 @@ class Config:
 
     # ===== SUPABASE CONFIGURATION =====
     # Currently pointing to: tkotvyblutchsudpqqqe (TEST)
-    SUPABASE_URL = os.environ.get(
-        'NEXT_PUBLIC_SUPABASE_URL',
-        'https://aqfpbywhrqrzaiehupbj.supabase.co'
+    # Server-side deployments should use SUPABASE_KEY (or the service-role
+    # key) so the API has the same database permissions in local and Vercel.
+    SUPABASE_URL = (
+        os.environ.get('SUPABASE_URL')
+        or os.environ.get('NEXT_PUBLIC_SUPABASE_URL')
+        or 'https://aqfpbywhrqrzaiehupbj.supabase.co'
     )
-    SUPABASE_KEY = os.environ.get(
-        'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
-        'sb_publishable_f5yyP2iTNjyklFLc4eM7jA_Lv7469z-'
+    SUPABASE_KEY = (
+        os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+        or os.environ.get('SUPABASE_KEY')
+        or os.environ.get('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY')
+        or 'sb_publishable_f5yyP2iTNjyklFLc4eM7jA_Lv7469z-'
     )
 
     SUPABASE_HEADERS = {
