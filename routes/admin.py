@@ -3017,9 +3017,15 @@ def admin_products():
                 'product': data
             })
         else:
+            try:
+                upstream_error = response.json()
+            except ValueError:
+                upstream_error = response.text[:500]
+            print(f"❌ Supabase product save failed: {response.status_code} - {upstream_error}")
             return jsonify({
                 'success': False,
-                'message': f'Error saving product: {response.status_code}'
+                'message': f'Error saving product: {response.status_code}',
+                'error': upstream_error
             }), 500
 
     except Exception as exc:
