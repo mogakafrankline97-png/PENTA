@@ -2301,6 +2301,68 @@ def api_add_category():
         print(f"❌ Error adding category: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@admin_bp.route('/api/categories/<path:category_name>', methods=['DELETE'])
+@admin_bp.route('/admin/api/categories/<path:category_name>', methods=['DELETE'])
+@admin_required
+def api_delete_category(category_name):
+    """Delete a category. Safe: unassigns products first."""
+    try:
+        import urllib.parse
+        category_name = urllib.parse.unquote(category_name).strip()
+        if not category_name:
+            return jsonify({'success': False, 'message': 'Category name required'}), 400
+
+        print(f"🗑️ Deleting category: '{category_name}'")
+
+        # 1. Check if any products use this category
+        check_resp = requests.get(
+            f"{Config.SUPABASE_URL}/rest/v1/products"
+            f"?category=eq.{category_name}&select=id,name&limit=5",
+            headers=Config.SUPABASE_HEADERS,
+            timeout=10
+        )
+        products_using = check_resp.json() if check_resp.status_code == 200 else []
+
+        # 2. If products use it, set their category to 'Uncategorized'
+        unassigned = 0
+        if products_using:
+            print(f"⚠️ {len(products_using)} products use this category — setting to 'Uncategorized'")
+            patch_resp = requests.patch(
+                f"{Config.SUPABASE_URL}/rest/v1/products?category=eq.{category_name}",
+                headers={**Config.SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                json={'category': 'Uncategorized'},
+                timeout=10
+            )
+            if patch_resp.status_code in [200, 204]:
+                unassigned = len(products_using)
+
+        # 3. Delete from categories table
+        del_resp = requests.delete(
+            f"{Config.SUPABASE_URL}/rest/v1/categories?name=eq.{category_name}",
+            headers=Config.SUPABASE_HEADERS,
+            timeout=10
+        )
+
+        if del_resp.status_code in [200, 204]:
+            return jsonify({
+                'success': True,
+                'message': f'Category "{category_name}" deleted' + 
+                           (f' ({unassigned} products moved to Uncategorized)' if unassigned else ''),
+                'unassigned_products': unassigned
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Failed to delete: HTTP {del_resp.status_code}',
+                'detail': del_resp.text[:200]
+            }), 500
+
+    except Exception as e:
+        print(f"❌ Error deleting category: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ============================================================
 # [NEW] ANALYTICS API - WITH CREDIT DATA MERGED
 # ============================================================
