@@ -2215,30 +2215,30 @@ def api_add_user():
 @admin_bp.route('/admin/api/categories', methods=['GET'])
 @admin_required
 def api_get_categories():
-    """Get all categories dynamically from products, plus locally saved custom categories."""
+    """Get all categories from Supabase + products."""
     try:
-        local_data = load_json_data() or {}
-        stored_categories = local_data.get('categories', []) or []
-        if isinstance(stored_categories, dict):
-            stored_categories = list(stored_categories.keys())
-        elif not isinstance(stored_categories, list):
-            stored_categories = []
-
         categories = {}
-        for cat in stored_categories:
-            cat_name = str(cat).strip()
-            if cat_name:
-                categories[cat_name] = {'name': cat_name, 'count': 0}
 
-        response = requests.get(
+        # 1. Get categories from the categories table
+        resp = requests.get(
+            f"{Config.SUPABASE_URL}/rest/v1/categories?select=name",
+            headers=Config.SUPABASE_HEADERS,
+            timeout=10
+        )
+        if resp.status_code == 200:
+            for row in resp.json():
+                name = str(row.get('name', '')).strip()
+                if name:
+                    categories[name] = {'name': name, 'count': 0}
+
+        # 2. Merge in categories from products (with counts)
+        resp2 = requests.get(
             f"{Config.SUPABASE_URL}/rest/v1/products?select=category",
             headers=Config.SUPABASE_HEADERS,
             timeout=10
         )
-
-        if response.status_code == 200:
-            products = response.json() or []
-            for p in products:
+        if resp2.status_code == 200:
+            for p in resp2.json() or []:
                 cat = str(p.get('category', '') or '').strip()
                 if not cat:
                     continue
@@ -2247,23 +2247,20 @@ def api_get_categories():
                 categories[cat]['count'] += 1
 
         if not categories:
-            categories = {
-                'General': {'name': 'General', 'count': 0}
-            }
+            categories = {'General': {'name': 'General', 'count': 0}}
 
         return jsonify(categories)
 
     except Exception as e:
         print(f"❌ Error loading categories: {e}")
-        return jsonify({
-            'General': {'name': 'General', 'count': 0}
-        })
+        return jsonify({'General': {'name': 'General', 'count': 0}})
+
 
 @admin_bp.route('/api/categories', methods=['POST'])
 @admin_bp.route('/admin/api/categories', methods=['POST'])
 @admin_required
 def api_add_category():
-    """Add a new category and persist it locally so it appears in the category list."""
+    """Add a new category (works on Vercel — saves to Supabase)."""
     try:
         data = request.get_json() or {}
         if not data or not data.get('name'):
@@ -2273,25 +2270,32 @@ def api_add_category():
         if not category_name:
             return jsonify({'success': False, 'message': 'Category name cannot be empty'}), 400
 
-        local_data = load_json_data() or {}
-        stored_categories = local_data.get('categories', []) or []
-        if isinstance(stored_categories, dict):
-            stored_categories = list(stored_categories.keys())
-        elif not isinstance(stored_categories, list):
-            stored_categories = []
+        # Insert into Supabase
+        resp = requests.post(
+            f"{Config.SUPABASE_URL}/rest/v1/categories",
+            headers={**Config.SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+            json={'name': category_name},
+            timeout=10
+        )
 
-        stored_categories = [str(cat).strip() for cat in stored_categories if str(cat).strip()]
-        if category_name not in stored_categories:
-            stored_categories.append(category_name)
-            stored_categories = sorted(stored_categories)
-            local_data['categories'] = stored_categories
-            save_json_data(local_data)
-
-        return jsonify({
-            'success': True,
-            'message': f'Category "{category_name}" added',
-            'category': {'name': category_name}
-        })
+        if resp.status_code in [200, 201, 204]:
+            return jsonify({
+                'success': True,
+                'message': f'Category "{category_name}" added',
+                'category': {'name': category_name}
+            })
+        elif resp.status_code == 409:
+            return jsonify({
+                'success': True,
+                'message': f'Category "{category_name}" already exists',
+                'category': {'name': category_name}
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Failed: HTTP {resp.status_code}',
+                'detail': resp.text[:200]
+            }), 500
 
     except Exception as e:
         print(f"❌ Error adding category: {e}")
